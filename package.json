@@ -1,0 +1,11 @@
+{
+  "name": "odyssee",
+  "version": "0.0.0",
+  "description": "Yet another web framework",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "namlook",
+  "license": "MIT"
+}
