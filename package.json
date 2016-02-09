@@ -1,6 +1,6 @@
 {
   "name": "odyssee",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Yet another web framework",
   "main": "index.js",
   "scripts": {
