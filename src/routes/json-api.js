@@ -20,6 +20,8 @@ const jsonApiQueryToArchimedesQuery = (resourceSchema, resourceQuery) => {
         aggregate: resourceSchema.aggregate || {},
         filter: archimedesFilter,
         sort: resourceQuery.sort || [],
+        limit: _.get(resourceQuery, 'page.limit'),
+        offset: _.get(resourceQuery, 'page.offset'),
     };
 };
 
@@ -43,6 +45,7 @@ const _jsonApiQueryValidator = (resourceSchema) => {
         sort: joi.array().items(joi.string().valid(validSortFields)),
         fields: joi.array().items(joi.string().valid(Object.keys(resourceFields))),
         filter: joi.object().keys(filterValidation),
+        included: joi.array().items(joi.string()), // TODO Add validIncluded
     };
 };
 
@@ -58,34 +61,129 @@ const jsonApiQueryValidation = (resourceSchema) => (_query, options, next) => {
 
     const sort = toArray(_query.sort);
     const fields = toArray(_query.fields);
-    const query = Object.assign({}, _query, { sort, fields });
+    const included = toArray(_query.included);
+    const query = Object.assign({}, _query, { sort, fields, included });
     joi.validate(query, _jsonApiQueryValidator(resourceSchema), next);
 };
 
-const pojo2jsonApi = (modelSchema, resourceSchema) => (pojo) => (
-    Object.keys(pojo).map((fieldName) => {
-        const _propertyName = _.get(resourceSchema, `fields.${fieldName}`);
-        const aggregationField = `aggregate.${fieldName}.$property`;
-        const propertyName = _propertyName || _.get(resourceSchema, aggregationField);
-        const property = modelSchema.getProperty(propertyName);
-        return { fieldName, property };
-    }).reduce((acc, o) => {
-        const value = pojo[o.fieldName];
-        if (o.fieldName === '_id') {
-            _.set(acc, 'id', value);
-        } else if (o.fieldName === '_type') {
-            _.set(acc, 'type', value);
-        } else if (o.property.isRelation()) {
-            const newValue = !_.isArray(value)
-                ? { id: value, type: o.property.type }
-                : value.map((val) => ({ id: val, type: o.property.type }));
-            _.set(acc, `relationships.${o.fieldName}.data`, newValue);
-        } else {
-            _.set(acc, `attributes.${o.fieldName}`, value);
+
+const assignPojo2jsonApiConverter = (request, reply) => {
+    const { modelToResourceName } = request.pre;
+    const pojo2jsonApiConverter = (modelSchema, resourceSchema) => (pojo) => (
+        Object.keys(pojo).map((fieldName) => {
+            const _propertyName = _.get(resourceSchema, `fields.${fieldName}`);
+            const aggregationField = `aggregate.${fieldName}.$property`;
+            const propertyName = _propertyName || _.get(resourceSchema, aggregationField);
+            const property = modelSchema.getProperty(propertyName);
+            return { fieldName, property };
+        }).reduce((acc, o) => {
+            const value = pojo[o.fieldName];
+            if (o.fieldName === '_id') {
+                _.set(acc, 'id', value);
+            } else if (o.fieldName === '_type') {
+                _.set(acc, 'type', modelToResourceName(value));
+            } else if (o.property.isRelation()) {
+                const newValue = !_.isArray(value)
+                    ? { id: value, type: modelToResourceName(o.property.type) }
+                    : value.map((val) => ({
+                        id: val,
+                        type: modelToResourceName(o.property.type),
+                    }));
+                _.set(acc, `relationships.${o.fieldName}.data`, newValue);
+            } else {
+                _.set(acc, `attributes.${o.fieldName}`, value);
+            }
+            return acc;
+        }, {})
+    );
+    reply(pojo2jsonApiConverter);
+};
+
+const assignModelToResourceName = (request, reply) => {
+    const { modelNamesToResourceNamesMapping } = request.server.plugins.odyssee;
+    const modelToResourceName = (modelName) => modelNamesToResourceNamesMapping[modelName];
+    reply(modelToResourceName);
+};
+
+const assignResourceToModelName = (request, reply) => {
+    const { resourceNamesToModelNamesMapping } = request.server.plugins.odyssee;
+    const resourceToModelName = (resourceName) => resourceNamesToModelNamesMapping[resourceName];
+    reply(resourceToModelName);
+};
+
+const assignJsonApiResourceSchema = (resourceQuerySchema) => (request, reply) => {
+    /** handle "fields" restriction and add _id and _type fields **/
+    const { query } = request;
+    const { fields: resourceFieldSchema } = resourceQuerySchema;
+    const _fields = query.fields.length
+        ? _.pick(resourceFieldSchema, query.fields)
+        : resourceFieldSchema;
+    const fields = Object.assign({}, _fields, { _id: '_id', _type: '_type' });
+    const jsonApiResourceSchema = Object.assign({}, resourceQuerySchema, { fields });
+    reply(jsonApiResourceSchema);
+};
+
+const assignArchimedesQuery = (request, reply) => {
+    const { query } = request;
+    const { jsonApiResourceSchema } = request.pre;
+    const archimedesQuery = jsonApiQueryToArchimedesQuery(jsonApiResourceSchema, query);
+    reply(archimedesQuery);
+};
+
+const assignFetchIncludedRelationships = (request, reply) => {
+    const { db } = request;
+    const { resourceToModelName, pojo2jsonApiConverter, jsonApiResourceSchema } = request.pre;
+
+    const fetchIncludedRelationships = (included, data) => {
+        const collectReferences = (pojo) =>
+            _(Object.keys(pojo.relationships || {}))
+                .flatMap((fieldName) => {
+                    if (included.indexOf(fieldName) > -1) {
+                        const { data: relationshipValue } = pojo.relationships[fieldName];
+                        return _.isArray(relationshipValue)
+                            ? relationshipValue
+                            : [relationshipValue];
+                    }
+                    return [];
+                })
+                .map(({ type, id }) => ({ type, id }))
+                .value();
+
+
+        let relationReferences = {};
+        if (included.length) {
+            relationReferences = _(data)
+                .flatMap(collectReferences)
+                .reduce((acc, { type, id }) => {
+                    const ids = _.uniq([...(acc[type] || []), id]);
+                    return Object.assign({}, acc, { [type]: ids });
+                }, {});
         }
-        return acc;
-    }, {})
-);
+
+        return highland(Object.keys(relationReferences).map((resourceName) => {
+            const relationQuerySchema = jsonApiResourceSchema.included[resourceName];
+            const relqueryFields = Object.assign(
+                {}, relationQuerySchema.fields, { _id: '_id', _type: '_type' }
+            );
+            const relquery = {
+                field: relqueryFields,
+                aggregate: relationQuerySchema.aggregate || {},
+                filter: {
+                    _id: { $in: relationReferences[resourceName] },
+                },
+            };
+            const relationModelName = resourceToModelName(resourceName);
+            const convertRelation2jsonApi = pojo2jsonApiConverter(
+                db[relationModelName].schema,
+                relationQuerySchema
+            );
+            return db.queryStream(relationModelName, relquery).map(convertRelation2jsonApi);
+        }))
+        .sequence();
+    };
+
+    reply(fetchIncludedRelationships);
+};
 
 const queryRoute = (routeExpositionConfig) => {
     const { path: routePath, expose: resourceQuerySchema } = routeExpositionConfig;
@@ -96,31 +194,34 @@ const queryRoute = (routeExpositionConfig) => {
             validate: {
                 query: jsonApiQueryValidation(resourceQuerySchema),
             },
+            pre: [
+                [
+                    { method: assignModelToResourceName, assign: 'modelToResourceName' },
+                    { method: assignResourceToModelName, assign: 'resourceToModelName' },
+                ],
+                { method: assignPojo2jsonApiConverter, assign: 'pojo2jsonApiConverter' },
+                {
+                    method: assignJsonApiResourceSchema(resourceQuerySchema),
+                    assign: 'jsonApiResourceSchema',
+                },
+                { method: assignArchimedesQuery, assign: 'archimedesQuery' },
+                { method: assignFetchIncludedRelationships, assign: 'fetchIncludedRelationships' },
+            ],
         },
         handler(request, reply) {
             const { db, modelName, query } = request;
 
-            /** handle "fields" restriction and add _id and _type fields **/
-            const { fields: resourceFieldSchema } = resourceQuerySchema;
-            const _fields = query.fields.length
-                ? _.pick(resourceFieldSchema, query.fields)
-                : resourceFieldSchema;
-            const fields = Object.assign({}, _fields, { _id: '_id', _type: '_type' });
+            const {
+                jsonApiResourceSchema,
+                archimedesQuery,
+                pojo2jsonApiConverter,
+                fetchIncludedRelationships,
+            } = request.pre;
 
-            const jsonApiResourceSchema = Object.assign({}, resourceQuerySchema, { fields });
-
-
-            const archimedesQuery = jsonApiQueryToArchimedesQuery(jsonApiResourceSchema, query);
-            const convertPojo2jsonApi = pojo2jsonApi(db[modelName].schema, jsonApiResourceSchema);
-
-            const addRelationships = (pojo) => _(Object.keys(pojo.relationships))
-                .flatMap((fieldName) => {
-                    const { data } = pojo.relationships[fieldName];
-                    return _.isArray(data) ? data : [data];
-                })
-                .map(({ type, id }) => ({ type, id }))
-                .value();
-
+            const convertPojo2jsonApi = pojo2jsonApiConverter(
+                db[modelName].schema,
+                jsonApiResourceSchema
+            );
 
             runQuery(db, modelName, archimedesQuery, (error, stream) => {
                 if (error) {
@@ -134,24 +235,13 @@ const queryRoute = (routeExpositionConfig) => {
                     .toArray(results => {
                         const data = results.map(convertPojo2jsonApi);
 
-                        const relationRefs = _(data)
-                            .flatMap(addRelationships)
-                            .reduce((acc, { type, id }) => {
-                                const ids = _.uniq([...(acc[type] || []), id]);
-                                return Object.assign({}, acc, { [type]: ids });
-                            }, {});
-
-                        highland(Object.keys(relationRefs).map((relationType) => {
-                            const relquery = {
-                                filter: {
-                                    _id: { $in: relationRefs[relationType] },
-                                },
-                            };
-                            return db.queryStream(relationType, relquery);
-                        }))
-                        .sequence()
-                        .toArray(included => {
-                            reply.ok({ data, included });
+                        fetchIncludedRelationships(query.included, data).toArray(included => {
+                            const response = Object.assign(
+                                {},
+                                { data },
+                                included.length ? { included } : {}
+                            );
+                            reply.ok(response);
                         });
                     });
             });

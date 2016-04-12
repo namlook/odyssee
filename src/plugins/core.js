@@ -8,9 +8,7 @@ import fillRequestWithDatabase from './fill-request-with-database';
 // import initPolicies from './policies';
 import initTasks from './tasks';
 import initLogger from './logger';
-
 import mimes from 'mime-types';
-
 import io from 'socket.io';
 
 
@@ -41,15 +39,16 @@ const loadResources = (plugin) => {
     // const routes = requireDir(routesDirectory);
     const { resources, app } = plugin.settings.app;
 
-    Object.keys(resources).forEach(resourceName => {
-        /** hack for es6 and require-dir **/
-        const resourceFn = resources[resourceName].__esModule
-            ? resources[resourceName].default
-            : resources[resourceName];
+    const modelNamesToResourceNamesMapping = {};
 
+    Object.keys(resources).forEach(resourceName => {
+        const resourceFn = resources[resourceName];
         const resourceConfig = resourceFn(plugin.settings.app);
 
         const { model, routes: routesConfig } = resourceConfig;
+
+        modelNamesToResourceNamesMapping[model] = resourceName;
+
         let { prefix } = resourceConfig;
 
         prefix = _.isNil(prefix) ? `/${resourceName}` : prefix;
@@ -59,7 +58,7 @@ const loadResources = (plugin) => {
 
             const routePath = route.path === '/' ? '' : route.path;
 
-            const path = `${app.apiRootPrefix}${prefix}${routePath}`;
+            const pathUrl = `${app.apiRootPrefix}${prefix}${routePath}`;
 
             const addedConfig = {};
 
@@ -71,10 +70,10 @@ const loadResources = (plugin) => {
 
             const config = Object.assign({}, routeConfig, addedConfig);
 
-            plugin.log(['info', 'odyssee'], `registering route: "${path}"`);
+            plugin.log(['info', 'odyssee'], `registering route: "${pathUrl}"`);
             return {
                 method,
-                path,
+                path: pathUrl,
                 config,
                 handler,
             };
@@ -84,6 +83,11 @@ const loadResources = (plugin) => {
             ['info', 'odyssee'],
             `mounting resource "${resourceName}" (${routes.length} routes)`
         );
+
+        plugin.expose(
+            'modelNamesToResourceNamesMapping', modelNamesToResourceNamesMapping);
+        plugin.expose(
+            'resourceNamesToModelNamesMapping', _.invert(modelNamesToResourceNamesMapping));
 
         plugin.route(routes);
     });
