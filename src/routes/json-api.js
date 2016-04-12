@@ -1,7 +1,7 @@
 
 import _ from 'lodash';
 import joi from 'joi';
-
+import highland from 'highland';
 import { runQuery } from './utils';
 
 
@@ -113,6 +113,15 @@ const queryRoute = (routeExpositionConfig) => {
             const archimedesQuery = jsonApiQueryToArchimedesQuery(jsonApiResourceSchema, query);
             const convertPojo2jsonApi = pojo2jsonApi(db[modelName].schema, jsonApiResourceSchema);
 
+            const addRelationships = (pojo) => _(Object.keys(pojo.relationships))
+                .flatMap((fieldName) => {
+                    const { data } = pojo.relationships[fieldName];
+                    return _.isArray(data) ? data : [data];
+                })
+                .map(({ type, id }) => ({ type, id }))
+                .value();
+
+
             runQuery(db, modelName, archimedesQuery, (error, stream) => {
                 if (error) {
                     return error.name === 'ValidationError'
@@ -121,10 +130,29 @@ const queryRoute = (routeExpositionConfig) => {
                 }
 
                 return stream
-                    .errors(err => reply.badRequest(err))
+                    .stopOnError(err => reply.badRequest(err))
                     .toArray(results => {
                         const data = results.map(convertPojo2jsonApi);
-                        reply.ok({ data });
+
+                        const relationRefs = _(data)
+                            .flatMap(addRelationships)
+                            .reduce((acc, { type, id }) => {
+                                const ids = _.uniq([...(acc[type] || []), id]);
+                                return Object.assign({}, acc, { [type]: ids });
+                            }, {});
+
+                        highland(Object.keys(relationRefs).map((relationType) => {
+                            const relquery = {
+                                filter: {
+                                    _id: { $in: relationRefs[relationType] },
+                                },
+                            };
+                            return db.queryStream(relationType, relquery);
+                        }))
+                        .sequence()
+                        .toArray(included => {
+                            reply.ok({ data, included });
+                        });
                     });
             });
         },

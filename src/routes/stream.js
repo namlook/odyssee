@@ -116,7 +116,6 @@ export default (routeExpositionConfig) => {
             const { db, modelName, query } = request;
 
             const archimedesQuery = streamQueryToArchimedesQuery(resourceQuerySchema, query);
-            console.log('>>>', archimedesQuery);
             runQuery(db, modelName, archimedesQuery, (error, stream) => {
                 if (error) {
                     return error.name === 'ValidationError'
