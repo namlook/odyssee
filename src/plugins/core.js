@@ -35,126 +35,126 @@ import io from 'socket.io';
 // };
 
 const loadResources = (plugin) => {
-    // const routesDirectory = path.join(process.cwd(), 'backend/routes');
-    // const routes = requireDir(routesDirectory);
-    const { resources, app } = plugin.settings.app;
+  // const routesDirectory = path.join(process.cwd(), 'backend/routes');
+  // const routes = requireDir(routesDirectory);
+  const { resources, app } = plugin.settings.app;
 
-    const modelNamesToResourceNamesMapping = {};
+  const modelNamesToResourceNamesMapping = {};
 
-    Object.keys(resources).forEach(resourceName => {
-        const resourceFn = resources[resourceName];
-        const resourceConfig = resourceFn(plugin.settings.app);
+  Object.keys(resources).forEach(resourceName => {
+    const resourceFn = resources[resourceName];
+    const resourceConfig = resourceFn(plugin.settings.app);
 
-        const { model, routes: routesConfig } = resourceConfig;
+    const { model, routes: routesConfig } = resourceConfig;
 
-        modelNamesToResourceNamesMapping[model] = resourceName;
+    modelNamesToResourceNamesMapping[model] = resourceName;
 
-        let { prefix } = resourceConfig;
+    let { prefix } = resourceConfig;
 
-        prefix = _.isNil(prefix) ? `/${resourceName}` : prefix;
+    prefix = _.isNil(prefix) ? `/${resourceName}` : prefix;
 
-        const routes = routesConfig.map((route) => {
-            const { method, handler, config: routeConfig } = route;
+    const routes = routesConfig.map((route) => {
+      const { method, handler, config: routeConfig } = route;
 
-            const routePath = route.path === '/' ? '' : route.path;
+      const routePath = route.path === '/' ? '' : route.path;
 
-            const pathUrl = `${app.apiRootPrefix}${prefix}${routePath}`;
+      const pathUrl = `${app.apiRootPrefix}${prefix}${routePath}`;
 
-            const addedConfig = {};
+      const addedConfig = {};
 
-            /**
-             * set modelName on the onfig so we can access it
-             * on middlewares
-             */
-            _.set(addedConfig, 'plugins.odyssee.modelName', model);
+      /**
+      * set modelName on the onfig so we can access it
+      * on middlewares
+      */
+      _.set(addedConfig, 'plugins.odyssee.modelName', model);
 
-            const config = Object.assign({}, routeConfig, addedConfig);
+      const config = Object.assign({}, routeConfig, addedConfig);
 
-            plugin.log(['info', 'odyssee'], `registering route: "${pathUrl}"`);
-            return {
-                method,
-                path: pathUrl,
-                config,
-                handler,
-            };
-        });
+      plugin.log(['info', 'odyssee'], `registering route: "${pathUrl}"`);
+      return {
+        method,
+        path: pathUrl,
+        config,
+        handler,
+      };
+    });
 
-        plugin.log(
-            ['info', 'odyssee'],
-            `mounting resource "${resourceName}" (${routes.length} routes)`
-        );
+    plugin.log(
+      ['info', 'odyssee'],
+      `mounting resource "${resourceName}" (${routes.length} routes)`
+    );
 
-        plugin.expose(
-            'modelNamesToResourceNamesMapping', modelNamesToResourceNamesMapping);
-        plugin.expose(
-            'resourceNamesToModelNamesMapping', _.invert(modelNamesToResourceNamesMapping));
+    plugin.expose(
+      'modelNamesToResourceNamesMapping', modelNamesToResourceNamesMapping);
+      plugin.expose(
+        'resourceNamesToModelNamesMapping', _.invert(modelNamesToResourceNamesMapping));
 
         plugin.route(routes);
-    });
-};
+      });
+    };
 
-const initWebSocket = (plugin) => {
-    const ws = io(plugin.listener);
+    const initWebSocket = (plugin) => {
+      const ws = io(plugin.listener);
 
-    ws.on('connection', (socket) => {
+      ws.on('connection', (socket) => {
         plugin.log(['debug', 'socket'], `new connection from ${socket.handshake.address}`);
-    });
+      });
 
-    return ws;
-};
-
-
-const register = function odysseePlugin(plugin, options, next) {
-    initLogger(plugin, options);
-
-    // register websocket first as there is no dependencies
-    const ws = initWebSocket(plugin);
-    plugin.expose('websocket', ws);
-
-    const { db } = plugin.plugins.archimedes;
-    plugin.expose('database', db);
-    // plugin.expose('userModel', 'User');
-    // plugin.expose('usernameField', 'email');
-    // plugin.expose('passwordField', 'password');
-
-    boomReply(plugin);
-    jsonAPIErrorResponse(plugin);
-    fillRequestWithDatabase(plugin);
-
-    loadResources(plugin, options);
+      return ws;
+    };
 
 
-    const tasks = initTasks(plugin, options);
-    plugin.expose('tasks', tasks);
+    const register = function odysseePlugin(plugin, options, next) {
+      initLogger(plugin, options);
+
+      // register websocket first as there is no dependencies
+      const ws = initWebSocket(plugin);
+      plugin.expose('websocket', ws);
+
+      const { db } = plugin.plugins.archimedes;
+      plugin.expose('database', db);
+      // plugin.expose('userModel', 'User');
+      // plugin.expose('usernameField', 'email');
+      // plugin.expose('passwordField', 'password');
+
+      boomReply(plugin);
+      jsonAPIErrorResponse(plugin);
+      fillRequestWithDatabase(plugin);
+
+      loadResources(plugin, options);
 
 
-    plugin.route({
+      const tasks = initTasks(plugin, options);
+      plugin.expose('tasks', tasks);
+
+
+      plugin.route({
         path: '/{param*}',
         method: 'GET',
         handler: (request, reply) => {
-            const { url, apiBaseUri } = request;
+          const { url, apiBaseUri } = request;
 
-            const routePath = url.path === '/'
-                ? 'index.html'
-                : url.path;
+          const routePath = url.path === '/'
+          ? 'index.html'
+          : url.path;
 
-            const { publicDirectory } = plugin.settings.app;
+          const { publicDirectory } = plugin.settings.app;
 
-            if (mimes.lookup(routePath)) {
-                return reply.file(`./${publicDirectory}/${routePath}`);
-            } else if (!_.startsWith(routePath, apiBaseUri)) {
-                return reply.redirect(`/#${routePath}`);
-            }
-            return reply.notFound();
+          if (mimes.lookup(routePath)) {
+            return reply.file(`./${publicDirectory}/${routePath}`);
+          } else if (!_.startsWith(routePath, apiBaseUri)) {
+            return reply.redirect(`/#${routePath}`);
+          }
+          return reply.notFound();
         },
-    });
+      });
 
-    return next();
-};
+      return next();
+    };
 
-register.attributes = {
-    name: 'odyssee',
-    // version: '1.0.0'
-};
+    register.attributes = {
+      name: 'odyssee',
+      // version: '1.0.0'
+    };
 
-export { register };
+    export { register };

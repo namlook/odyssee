@@ -12,54 +12,54 @@ import { queryRoute as jsonApiQueryRoute } from '../../../src/routes/json-api';
 import { jsonApiQueryExpose as jsonApiQueryExposeIngredient } from './ingredients';
 
 export default (/* config */) => (
-    {
-        model: 'Recipe',
-        routes: [
-            streamRoute({
-                path: '/i/stream',
-                expose: {
-                    fields: ['title', 'pageNumber', 'ingredients.quantity', 'book.title'],
-                    filter: ['lipids'],
-                    aggregate: ['ingredients'],
-                    sort: ['lipids', 'title'],
-                },
-            }),
-            jsonApiQueryRoute({
-                path: '/',
-                expose: {
-                    fields: {
-                        title: 'title',
-                        lipids: 'lipids',
-                        book: 'book',
-                    },
-                    aggregate: {
-                        ingredients: {
-                            $aggregator: 'array',
-                            $property: 'ingredients',
-                        },
-                        sumQuantity: {
-                            $aggregator: 'sum',
-                            $property: 'ingredients.quantity',
-                        },
-                    },
-                    filter: {
-                        book: 'book.title',
-                        title: 'title',
-                        lipids: 'lipids',
-                    },
-                    sort: ['lipids', 'title'],
-                    included: {
-                        ingredients: jsonApiQueryExposeIngredient,
-                        books: {
-                            fields: {
-                                title: 'title',
-                            },
-                        },
-                    },
-                },
-            }),
-        ],
-    }
+  {
+    model: 'Recipe',
+    routes: [
+      streamRoute({
+        path: '/i/stream',
+        expose: {
+          fields: ['title', 'pageNumber', 'ingredients.quantity', 'book.title'],
+          filter: ['lipids'],
+          aggregate: ['ingredients'],
+          sort: ['lipids', 'title'],
+        },
+      }),
+      jsonApiQueryRoute({
+        path: '/',
+        expose: {
+          fields: {
+            title: 'title',
+            lipids: 'lipids',
+            book: 'book',
+          },
+          aggregate: {
+            ingredients: {
+              $aggregator: 'array',
+              $property: 'ingredients',
+            },
+            sumQuantity: {
+              $aggregator: 'sum',
+              $property: 'ingredients.quantity',
+            },
+          },
+          filter: {
+            book: 'book.title',
+            title: 'title',
+            lipids: 'lipids',
+          },
+          sort: ['lipids', 'title'],
+          included: {
+            ingredients: jsonApiQueryExposeIngredient,
+            books: {
+              fields: {
+                title: 'title',
+              },
+            },
+          },
+        },
+      }),
+    ],
+  }
 );
 
 

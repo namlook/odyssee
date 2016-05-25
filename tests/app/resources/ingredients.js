@@ -37,13 +37,13 @@ export const streamExpose = {
 };
 
 import { queryRoute as jsonApiQueryRoute } from '../../../src/routes/json-api';
-import streamRoute from '../../../src/routes/stream';
+import { queryRoute as streamQueryRoute } from '../../../src/routes/stream';
 
 export default (/* config */) => ({
     model: 'Ingredient',
     routes: [
         jsonApiQueryRoute({ path: '/', expose: jsonApiQueryExpose }),
-        streamRoute({ path: '/i/stream', expose: streamExpose }),
+        streamQueryRoute({ path: '/i/stream', expose: streamExpose }),
     ],
 });
 

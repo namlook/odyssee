@@ -10,15 +10,12 @@
   },
   "author": "namlook",
   "license": "MIT",
-  "babel": {
-    "presets": [
-      "es2015"
-    ]
-  },
   "devDependencies": {
     "babel-cli": "^6.6.5",
     "babel-core": "^6.7.4",
+    "babel-eslint": "^6.0.4",
     "babel-preset-es2015": "^6.6.0",
+    "babel-preset-stage-1": "^6.5.0",
     "code": "^2.1.1",
     "eslint": "^2.5.3",
     "eslint-config-airbnb": "^6.2.0",
@@ -29,7 +26,7 @@
     "request": "^2.69.0"
   },
   "dependencies": {
-    "archimedes": "0.0.6",
+    "archimedes": "github:namlook/archimedes",
     "bluebird": "^3.3.4",
     "boom": "^3.1.2",
     "glue": "^3.2.0",
