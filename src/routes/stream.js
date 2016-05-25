@@ -61,10 +61,22 @@ const streamQueryValidation = (resourceSchema) => (query, options, next) => {
     const queryFieldsProperties = _.values(query.fields || {});
     const queryFilterProperties = Object.keys(query.filter || {});
     const queryAggregateProperties = [].concat(
-        _.values(query.aggregate)
-            .map((aggregation) => [aggregation.$property] || _.values(aggregation))
+        _(query.aggregate)
+        .values(query.aggregate)
+        .flatMap((aggregation) => (
+          aggregation.$property
+            ? [aggregation.$property]
+            : _.values(aggregation)
+        ))
+        .value()
     );
-    const querySortProperties = JSON.parse(query.sort || []);
+
+    let querySortProperties;
+    try {
+      querySortProperties = JSON.parse(query.sort);
+    } catch (e) {
+      querySortProperties = [];
+    }
 
     const validateProperties = (validProperties, queryProperties, scope) => {
         const validFields = _.intersection(validProperties, queryProperties);
@@ -102,7 +114,7 @@ const streamQueryValidation = (resourceSchema) => (query, options, next) => {
 };
 
 
-export default (routeExpositionConfig) => {
+const queryRoute = (routeExpositionConfig) => {
     const { path: routePath, expose: resourceQuerySchema } = routeExpositionConfig;
     return {
         method: 'GET',
@@ -128,3 +140,22 @@ export default (routeExpositionConfig) => {
         },
     };
 };
+
+const exposeAllProperties = (modelSchema) => {
+  const { properties } = modelSchema;
+  const exposedFields = Object.keys(properties)
+    .reduce((acc, propertyName) => {
+      const fields = [...(acc.fields || []), propertyName];
+      const aggregate = [...(acc.aggregate || []), propertyName];
+      const filter = [...(acc.filter || []), propertyName];
+      const sort = [...(acc.sort || []), propertyName];
+      return { fields, aggregate, filter, sort };
+    }, {});
+  exposedFields.fields = ['_id', '_type', ...exposedFields.fields];
+  exposedFields.aggregate = ['_id', '_type', ...exposedFields.aggregate];
+  exposedFields.filter = ['_id', '_type', ...exposedFields.filter];
+  exposedFields.sort = ['_id', '_type', ...exposedFields.sort];
+  return exposedFields;
+};
+
+export { queryRoute, exposeAllProperties };

@@ -26,37 +26,37 @@ import { queryValidator } from 'archimedes';
 // };
 
 export const runQuery = (db, modelName, query, callback) => {
-    let { limit } = query;
-    limit = limit === undefined ? 20 : limit;
-    limit = limit === 0 ? undefined : limit;
+  let { limit } = query;
+  limit = limit === undefined ? 20 : limit;
+  limit = limit === 0 ? undefined : limit;
 
-    const queryWithLimit = Object.assign({}, query, { limit });
-    queryValidator(db, modelName).validate(queryWithLimit).then((validatedQuery) => {
-        callback(null, db.queryStream(modelName, validatedQuery));
-    }).catch(callback);
+  const queryWithLimit = Object.assign({}, query, { limit });
+  queryValidator(db, modelName).validate(queryWithLimit).then((validatedQuery) => {
+    callback(null, db.queryStream(modelName, validatedQuery));
+  }).catch(callback);
 };
 
 
 export const highlandToJsonStream = (stream) => highland([
-    highland(['{"data":[']),
-    stream.map(JSON.stringify).intersperse(','),
-    highland([']}']),
+  highland(['{"data":[']),
+  stream.map(JSON.stringify).intersperse(','),
+  highland([']}']),
 ]).sequence();
 
 
 export const preParsePayload = (request, reply) => {
-    const { payload } = request;
+  const { payload } = request;
 
-    let parsedPayload = null;
-    if (typeof payload === 'string') {
-        try {
-            parsedPayload = JSON.parse(payload);
-        } catch (parseError) {
-            return reply.badRequest('The payload should be a valid JSON', { payload, parseError });
-        }
-        parsedPayload = _.isArray(parsedPayload) ? parsedPayload : [parsedPayload];
+  let parsedPayload = null;
+  if (typeof payload === 'string') {
+    try {
+      parsedPayload = JSON.parse(payload);
+    } catch (parseError) {
+      return reply.badRequest('The payload should be a valid JSON', { payload, parseError });
     }
-    return reply(payload);
+    parsedPayload = _.isArray(parsedPayload) ? parsedPayload : [parsedPayload];
+  }
+  return reply(payload);
 };
 
 /**
@@ -65,19 +65,19 @@ export const preParsePayload = (request, reply) => {
  * and attach it to request.pre.document
  */
 export const preFetchDocument = (request, reply) => {
-    const { modelName, params, db } = request;
-    if (modelName && params.id) {
-        const query = {
-            filter: { _id: params.id },
-        };
+  const { modelName, params, db } = request;
+  if (modelName && params.id) {
+    const query = {
+      filter: { _id: params.id },
+    };
 
-        return db.queryStream(modelName, query)
-            .stopOnError((err) => reply.badImplementation(err))
-            .toArray(documents => { // eslint-disable-line arrow-body-style
-                return documents.length === 0
-                    ? reply.notFound()
-                    : reply(documents[0]);
-            });
-    }
-    return reply();
+    return db.queryStream(modelName, query)
+      .stopOnError((err) => reply.badImplementation(err))
+      .toArray(documents => { // eslint-disable-line arrow-body-style
+        return documents.length === 0
+          ? reply.notFound()
+          : reply(documents[0]);
+      });
+  }
+  return reply();
 };

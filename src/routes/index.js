@@ -7,7 +7,7 @@ import {
 import streamRoute from './stream';
 import { queryRoute as queryJsonApiRoute } from './json-api';
 
-export default (options) => ([ // eslint-disable-line no-unused-vars
+export default (options = {}) => ([ // eslint-disable-line no-unused-vars
     streamRoute({ path: '/i/stream' }),
     queryJsonApiRoute({ path: '/' }),
     {

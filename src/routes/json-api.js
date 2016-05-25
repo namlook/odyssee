@@ -26,7 +26,7 @@ const jsonApiQueryToArchimedesQuery = (resourceSchema, resourceQuery) => {
 };
 
 
-const _jsonApiQueryValidator = (resourceSchema) => {
+const _jsonApiQueryValidator = (resourceSchema = {}) => {
     const resourceFields = resourceSchema.fields || {};
     const resourceFilter = resourceSchema.filter || {};
     const resourceSort = resourceSchema.sort || [];
@@ -83,12 +83,15 @@ const assignPojo2jsonApiConverter = (request, reply) => {
             } else if (o.fieldName === '_type') {
                 _.set(acc, 'type', modelToResourceName(value));
             } else if (o.property.isRelation()) {
+                const resourceType = modelToResourceName(o.property.type);
+                if (!resourceType) {
+                    throw new Error(
+                      `cannot find a resource that match model \`${o.property.type}\`.`
+                    );
+                }
                 const newValue = !_.isArray(value)
-                    ? { id: value, type: modelToResourceName(o.property.type) }
-                    : value.map((val) => ({
-                        id: val,
-                        type: modelToResourceName(o.property.type),
-                    }));
+                    ? { id: value, type: resourceType }
+                    : value.map((val) => ({ id: val, type: resourceType }));
                 _.set(acc, `relationships.${o.fieldName}.data`, newValue);
             } else {
                 _.set(acc, `attributes.${o.fieldName}`, value);
@@ -111,7 +114,7 @@ const assignResourceToModelName = (request, reply) => {
     reply(resourceToModelName);
 };
 
-const assignJsonApiResourceSchema = (resourceQuerySchema) => (request, reply) => {
+const assignJsonApiResourceSchema = (resourceQuerySchema = {}) => (request, reply) => {
     /** handle "fields" restriction and add _id and _type fields **/
     const { query } = request;
     const { fields: resourceFieldSchema } = resourceQuerySchema;
@@ -249,4 +252,32 @@ const queryRoute = (routeExpositionConfig) => {
     };
 };
 
-export { queryRoute };
+const exposeAllProperties = (modelSchema) => {
+  const { properties } = modelSchema;
+  return Object.keys(properties)
+    .map((propertyName) => {
+      const property = properties[propertyName];
+      const type = property.type === 'array' ? 'aggregate' : 'fields';
+      return { type, name: propertyName };
+    })
+    .reduce((acc, item) => {
+      let section;
+      if (item.type === 'aggregate') {
+        section = {
+          ...(acc.aggregate || {}),
+          [item.name]: {
+            $aggregator: 'array',
+            $property: item.name,
+          },
+        };
+      } else {
+        section = { ...(acc.fields || {}), [item.name]: item.name };
+      }
+
+      const filter = { ...(acc.filter || {}), [item.name]: item.name };
+      return { ...acc, [item.type]: section, filter };
+    }, {});
+};
+
+
+export { queryRoute, exposeAllProperties };
